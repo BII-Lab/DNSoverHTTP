@@ -21,8 +21,10 @@ warnings" enabled.
 Construction
 ------------
 
-(cd proxy_dns_gw; make)
-(cd proxy_dns_fcgi; make)
+More or less, do this:
+
+	(cd proxy_dns_gw; make)
+	(cd proxy_dns_fcgi; make)
 
 It is possible that the Makefile will need tweaking, since -lresolv is
 required on Linux but is both not required and will not work on BSD due
@@ -48,6 +50,7 @@ fragmented UDP (to make EDNS0 usable.)
         }
 
 4. reload the configuration of, or restart, your nginx server.
+5. test the integration by visiting the /proxy_dns page with a browser.
 
 Client Installation
 -------------------
@@ -87,7 +90,8 @@ JSON or XML encoding; the DNS query and response are sent as raw binary via
 the "libcurl" library on the client side and the "libfcgi" library on the
 server side. The URI is always "/proxy_dns", which means, it contains no
 parameters. The result is always marked non-cacheable. The request is always
-POST. There is one new HTTP header:
+POST. If you send the fcgi server a GET, it will return a human-readable page
+showing its web server environment. There is one new HTTP header:
 
 	Proxy-DNS-Transport: xyz
 
