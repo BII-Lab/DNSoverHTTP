@@ -8,7 +8,7 @@ would also work) and a DNS server (we use BIND, but Unbound would also work.)
 2. a DNS proxy server that is the target of an /etc/resolv.conf (on UNIX) or
 DHCP "name server" declaration; it resolves DNS by using upstream HTTP.
 
-The great advantage to this approach are that HTTP usually makes it through
+The great advantage to this approach is that HTTP usually makes it through
 even the worst coffee shop or hotel room firewalls, since commerce may be at
 stake. We also benefit from HTTP's persistent TCP connection pool concept,
 which DNS on TCP/53 does not have. Lastly, HTTPS will work, giving privacy.
