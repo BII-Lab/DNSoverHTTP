@@ -40,11 +40,13 @@ fragmented UDP (to make EDNS0 usable.)
 1. place the proxy_dns_fcgi executable somewhere that nginx can reach it.
 2. start this executable and look for a /tmp/proxy_dns_fcgi.sock file.
 3. edit nginx.conf to contain something equivilent to the following:
+
         location /proxy_dns {
                 root /;
                 fastcgi_pass unix:/tmp/proxy_dns_fcgi.sock;
                 include fastcgi_params;
         }
+
 4. reload the configuration of, or restart, your nginx server.
 
 Client Installation
