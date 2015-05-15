@@ -2,6 +2,7 @@
 
 #define _GNU_SOURCE
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -25,9 +26,15 @@
 
 /* Private. */
 
+typedef union sockaddr_union {
+	struct sockaddr_in6 sa6;
+	struct sockaddr_in sa4;
+	struct sockaddr sa;
+} *sockaddr_union_t;
+
 typedef struct upstream {
 	int socket;
-	struct sockaddr from;
+	union sockaddr_union from;
 	socklen_t fromlen;
 	struct curl_slist *headers;
 	char *url, *transport;
@@ -41,12 +48,6 @@ typedef struct timeout {
 	time_t when;
 	int socket;
 } *timeout_t;
-
-typedef union sockaddr_union {
-	struct sockaddr_in6 sa6;
-	struct sockaddr_in sa4;
-	struct sockaddr sa;
-} *sockaddr_union_t;
 
 static int udp_listener = -1, tcp_listener = -1, ourmax = -1;
 static int ncurl = 0, debug = 0;
@@ -68,7 +69,7 @@ static void tcp_session(int listener);
 static void tcp_input(CURLM *, int fd);
 static void tcp_close(int fd);
 static int launch_request(CURLM *, const u_char *, size_t,
-			  int, const char *, struct sockaddr, socklen_t);
+			  int, const char *, union sockaddr_union, socklen_t);
 static size_t write_callback(char *ptr, size_t size, size_t count,
 			     void *userdata);
 static int get_sockets(const char *, int default_port, int *udp, int *tcp);
@@ -78,7 +79,7 @@ static int add_timeout(time_t when, int socket);
 static void update_timeout(time_t when, int socket);
 static int remove_timeout(int socket);
 static long do_timeouts(time_t as_of);
-static upstream_t upstream_create(int, struct sockaddr, socklen_t,
+static upstream_t upstream_create(int, union sockaddr_union, socklen_t,
 				  const u_char *, size_t);
 static void upstream_destroy(upstream_t *arg);
 static void debug_dump(int level, const char *after);
@@ -302,7 +303,7 @@ upstream_complete(upstream_t arg) {
 
 	if (arg->socket == udp_listener) {
 		n = sendto(arg->socket, arg->resp, arg->resplen,
-			   0, &arg->from, arg->fromlen);
+			   0, &arg->from.sa, arg->fromlen);
 	} else {
 		struct iovec iov[2];
 		struct msghdr msg;
@@ -327,8 +328,8 @@ upstream_complete(upstream_t arg) {
 
 static void
 udp_input(CURLM *curlm) {
+	union sockaddr_union from;
 	u_char dnsreq[NS_MAXMSG];
-	struct sockaddr from;
 	socklen_t fromlen;
 	ssize_t reqlen;
 		    
@@ -336,7 +337,7 @@ udp_input(CURLM *curlm) {
 
 	while (fromlen = sizeof from,
 	       (reqlen = recvfrom(udp_listener, dnsreq, sizeof dnsreq, 0,
-				  &from, &fromlen)) > 0)
+				  &from.sa, &fromlen)) > 0)
 	{
 		(void) launch_request(curlm, dnsreq, reqlen,
 				      udp_listener, "UDP",
@@ -378,7 +379,7 @@ tcp_session(int listener) {
 static void
 tcp_input(CURLM *curlm, int tcp_client) {
 	u_char reqlen[NS_INT16SZ], req[NS_MAXMSG];
-	struct sockaddr from;
+	union sockaddr_union from;
 	socklen_t fromlen;
 	int len1, len2;
 
@@ -415,7 +416,7 @@ tcp_input(CURLM *curlm, int tcp_client) {
 		goto abend;
 	}
 	fromlen = sizeof from;
-	if (getpeername(tcp_client, &from, &fromlen) < 0) {
+	if (getpeername(tcp_client, &from.sa, &fromlen) < 0) {
 		fprintf(stderr, "getpeername(tcp_client): %s\n",
 			strerror(errno));
 		goto abend;
@@ -451,7 +452,7 @@ tcp_close(int fd) {
 static int
 launch_request(CURLM *curlm, const u_char *dnsreq, size_t reqlen,
 	       int outputsock, const char *transport,
-	       struct sockaddr from, socklen_t fromlen)
+	       union sockaddr_union from, socklen_t fromlen)
 {
 	upstream_t arg = NULL;
 	CURL *curl = NULL;
@@ -583,14 +584,20 @@ get_sockaddr(const char *input, int port,
 {
 	if (inet_pton(AF_INET6, input, &sup->sa6.sin6_addr) > 0) {
 		*lenp = sizeof sup->sa6;
+		memset(&sup->sa6, 0, sizeof sup->sa6);
 		sup->sa6.sin6_family = AF_INET6;
-		/* sup->sa6.sin6_len = len; */
+#ifdef BSD4_4
+		sup->sa6.sin6_len = *lenp;
+#endif
 		sup->sa6.sin6_port = htons(port);
 		*pfp = PF_INET6;
 	} else if (inet_pton(AF_INET, input, &sup->sa4.sin_addr) > 0) {
 		*lenp = sizeof sup->sa4;
+		memset(&sup->sa4, 0, sizeof sup->sa4);
 		sup->sa4.sin_family = AF_INET;
-		/* sa4.sin_len = len; */
+#ifdef BSD4_4
+		sup->sa4.sin_len = *lenp;
+#endif
 		sup->sa4.sin_port = htons(port);
 		*pfp = PF_INET;
 	} else {
@@ -690,7 +697,8 @@ do_timeouts(time_t as_of) {
 }
 
 static upstream_t
-upstream_create(int outputsock, struct sockaddr from, socklen_t fromlen,
+upstream_create(int outputsock,
+		union sockaddr_union from, socklen_t fromlen,
 		const u_char *dnsreq, size_t reqlen)
 {
 	upstream_t arg = malloc(sizeof *arg);
