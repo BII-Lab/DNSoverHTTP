@@ -49,7 +49,15 @@ typedef struct timeout {
 	int socket;
 } *timeout_t;
 
-static int udp_listener = -1, tcp_listener = -1, ourmax = -1;
+typedef struct listener {
+	struct listener *next;
+	int udp, tcp;
+} *listener_t;
+
+enum conntype { e_none, e_udp, e_tcp };
+
+static listener_t listeners = NULL;
+static int ourmax = -1;
 static int ncurl = 0, debug = 0;
 static timeout_t timeouts = NULL;
 static const char *server = NULL;
@@ -64,7 +72,7 @@ static fd_set ourfds;
 /* Forward. */
 
 static void upstream_complete(upstream_t arg);
-static void udp_input(CURLM *);
+static void udp_input(CURLM *, int fd);
 static void tcp_session(int listener);
 static void tcp_input(CURLM *, int fd);
 static void tcp_close(int fd);
@@ -72,7 +80,8 @@ static int launch_request(CURLM *, const u_char *, size_t,
 			  int, const char *, union sockaddr_union, socklen_t);
 static size_t write_callback(char *ptr, size_t size, size_t count,
 			     void *userdata);
-static int get_sockets(const char *, int default_port, int *udp, int *tcp);
+static listener_t get_sockets(const char *, int default_port);
+static enum conntype our_listener_p(int fd);
 static int get_sockaddr(const char *, int, sockaddr_union_t, socklen_t *,
 			int *);
 static int add_timeout(time_t when, int socket);
@@ -91,6 +100,7 @@ static char *fdlist(int, fd_set *);
 
 int
 main(int argc, char **argv) {
+	listener_t listener;
 	CURLM *curlm;
 	int ch;
 
@@ -100,12 +110,14 @@ main(int argc, char **argv) {
 			debug++;
 			break;
 		case 'l':
-			if (get_sockets(optarg, NS_DEFAULTPORT,
-					&udp_listener, &tcp_listener) < 0)
-			{
+			listener = get_sockets(optarg, NS_DEFAULTPORT);
+			if (listener == NULL) {
 				perror("get_sockets");
 				exit(1);
 			}
+			listener->next = listeners;
+			listeners = listener;
+			listener = NULL;
 			break;
 		case 's':
 			if (server != NULL) {
@@ -125,7 +137,7 @@ main(int argc, char **argv) {
 	}
 	argc -= optind, argv += optind;
 
-	if (udp_listener == -1 || tcp_listener == -1) {
+	if (listeners == NULL) {
 		fprintf(stderr, "-l must be specified\n");
 		exit(1);
 	}
@@ -134,18 +146,22 @@ main(int argc, char **argv) {
 		exit(1);
 	}
 
-	fcntl(tcp_listener, F_SETFL,
-	      fcntl(tcp_listener, F_GETFL) | O_NONBLOCK);
-	fcntl(udp_listener, F_SETFL,
-	      fcntl(udp_listener, F_GETFL) | O_NONBLOCK);
-	listen(tcp_listener, 10);
+	FD_ZERO(&ourfds);
+	ourmax = -1;
+	for (listener = listeners; listener != NULL; listener = listener->next)
+	{
+		fcntl(listener->tcp, F_SETFL,
+		      fcntl(listener->tcp, F_GETFL) | O_NONBLOCK);
+		fcntl(listener->udp, F_SETFL,
+		      fcntl(listener->udp, F_GETFL) | O_NONBLOCK);
+		listen(listener->tcp, 10);
+		FD_SET(listener->udp, &ourfds);
+		FD_SET(listener->tcp, &ourfds);
+		ourmax = MAX(ourmax, MAX(listener->udp, listener->tcp));
+	}
 
 	curl_global_init(CURL_GLOBAL_DEFAULT);
 	curlm = curl_multi_init();
-	FD_ZERO(&ourfds);
-	FD_SET(udp_listener, &ourfds);
-	FD_SET(tcp_listener, &ourfds);
-	ourmax = MAX(udp_listener, tcp_listener);
 	for (;;) {
 		long curl_timeout, our_timeout;
 		fd_set input, output, except;
@@ -265,9 +281,9 @@ main(int argc, char **argv) {
 
 		for (n = 0; n <= ourmax; n++) {
 			if (FD_ISSET(n, &ourfds) && FD_ISSET(n, &input)) {
-				if (n == udp_listener)
-					udp_input(curlm);
-				else if (n == tcp_listener)
+				if (our_listener_p(n) == e_udp)
+					udp_input(curlm, n);
+				else if (our_listener_p(n) == e_tcp)
 					tcp_session(n);
 				else
 					tcp_input(curlm, n);
@@ -282,6 +298,7 @@ main(int argc, char **argv) {
 
 static void
 upstream_complete(upstream_t arg) {
+	enum conntype ct;
 	int n;
 
 	assert(arg != NULL);
@@ -301,10 +318,11 @@ upstream_complete(upstream_t arg) {
 		arg->reqlen = 0;
 	}
 
-	if (arg->socket == udp_listener) {
+	ct = our_listener_p(arg->socket);
+	if (ct == e_udp) {
 		n = sendto(arg->socket, arg->resp, arg->resplen,
 			   0, &arg->from.sa, arg->fromlen);
-	} else {
+	} else if (ct == e_none) {
 		struct iovec iov[2];
 		struct msghdr msg;
 		u_char msglen[2];
@@ -321,27 +339,28 @@ upstream_complete(upstream_t arg) {
 		iov[1].iov_len = arg->resplen;
 
 		n = sendmsg(arg->socket, &msg, 0);
+	} else {
+		abort();
 	}
 	if (n < 0)
 		perror("send");
 }
 
 static void
-udp_input(CURLM *curlm) {
+udp_input(CURLM *curlm, int fd) {
 	union sockaddr_union from;
 	u_char dnsreq[NS_MAXMSG];
 	socklen_t fromlen;
 	ssize_t reqlen;
 		    
-	DPRINTF(1, (stderr, "udp_input(%d)\n", udp_listener));
+	DPRINTF(1, (stderr, "udp_input(%d)\n", fd));
 
 	while (fromlen = sizeof from,
-	       (reqlen = recvfrom(udp_listener, dnsreq, sizeof dnsreq, 0,
+	       (reqlen = recvfrom(fd, dnsreq, sizeof dnsreq, 0,
 				  &from.sa, &fromlen)) > 0)
 	{
 		(void) launch_request(curlm, dnsreq, reqlen,
-				      udp_listener, "UDP",
-				      from, fromlen);
+				      fd, "UDP", from, fromlen);
 	}
 }
 
@@ -362,8 +381,7 @@ tcp_session(int listener) {
 	if (tcp_client > ourmax)
 		ourmax = tcp_client;
 
-	DPRINTF(1, (stderr, "tcp_session(%d -> %d)\n",
-		    tcp_listener, tcp_client));
+	DPRINTF(1, (stderr, "tcp_session(%d -> %d)\n", listener, tcp_client));
 
 	fcntl(tcp_client, F_SETFL,
 	      fcntl(tcp_client, F_GETFL) | O_NONBLOCK);
@@ -533,12 +551,13 @@ write_callback(char *ptr, size_t size, size_t count, void *userdata) {
 	return (len);
 }	
 
-static int
-get_sockets(const char *spec, int default_port, int *udp, int *tcp) {
+static listener_t
+get_sockets(const char *spec, int default_port) {
 	union sockaddr_union su;
+	listener_t new;
 	char *p, *addr;
 	socklen_t len;
-	int pf, port;
+	int udp, tcp, pf, port;
 	const int on = 1;
 
 	if ((p = strchr(spec, '/')) == NULL)
@@ -549,32 +568,71 @@ get_sockets(const char *spec, int default_port, int *udp, int *tcp) {
 		port = default_port;
 	if (port == 0) {
 		fprintf(stderr, "port number '%s' is not valid\n", p + 1);
-		return (-1);
+		return (NULL);
 	}
 	addr = strndup(spec, p - spec);
 	if (!get_sockaddr(addr, port, &su, &len, &pf)) {
 		fprintf(stderr, "address '%s' is not valid\n", addr);
 		free(addr);
-		return (-1);
+		return (NULL);
 	}
 	free(addr);
-	*udp = socket(pf, SOCK_DGRAM, 0);
-	if (*udp == -1)
-		return (-1);
-	if (bind(*udp, &su.sa, len) == -1)
-		return (-1);
-	*tcp = socket(pf, SOCK_STREAM, 0);
-	if (*tcp == -1)
-		return (-1);
+
+	udp = socket(pf, SOCK_DGRAM, 0);
+	if (udp == -1) {
+		perror("socket(udp)");
+		return (NULL);
+	}
+	if (bind(udp, &su.sa, len) == -1) {
+		perror("bind(udp)");
+		close(udp);
+		return (NULL);
+	}
+	tcp = socket(pf, SOCK_STREAM, 0);
+	if (tcp == -1) {
+		perror("socket(tcp)");
+		close(udp);
+		close(tcp);
+		return (NULL);
+	}
 #ifdef SO_REUSEADDR
-	setsockopt(*tcp, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
+	(void) setsockopt(tcp, SOL_SOCKET, SO_REUSEADDR, &on, sizeof on);
 #endif
 #ifdef SO_REUSEPORT
-	setsockopt(*tcp, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on);
+	(void) setsockopt(tcp, SOL_SOCKET, SO_REUSEPORT, &on, sizeof on);
 #endif
-	if (bind(*tcp, &su.sa, len) == -1)
-		return (-1);
-	return (0);
+	if (bind(tcp, &su.sa, len) == -1) {
+		perror("bind(tcp)");
+		close(udp);
+		close(tcp);
+		return (NULL);
+	}
+	new = malloc(sizeof *new);
+	if (new == NULL) {
+		perror("malloc");
+		close(udp);
+		close(tcp);
+		return (NULL);
+	}
+	memset(new, 0, sizeof *new);
+	new->udp = udp;
+	new->tcp = tcp;
+	new->next = NULL;
+	return (new);
+}
+
+static enum conntype
+our_listener_p(int fd) {
+	listener_t listener;
+
+	for (listener = listeners; listener != NULL; listener = listener->next)
+	{
+		if (fd == listener->udp)
+			return (e_udp);
+		if (fd == listener->tcp)
+			return (e_tcp);
+	}
+	return (e_none);
 }
 
 static int

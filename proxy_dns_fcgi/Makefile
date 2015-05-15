@@ -1,7 +1,7 @@
 CFLAGS= -I/usr/local/include
 LDFLAGS= -L/usr/local/lib
 RESOLV= 
-RESOLV= -lresolv 
+#RESOLV= -lresolv 
 
 CWARN =-W -Wall -Wcast-qual -Wpointer-arith -Wwrite-strings \
 	-Wmissing-prototypes  -Wbad-function-cast -Wnested-externs \
