@@ -82,8 +82,8 @@ static size_t write_callback(char *ptr, size_t size, size_t count,
 			     void *userdata);
 static listener_t get_sockets(const char *, int default_port);
 static enum conntype our_listener_p(int fd);
-static int get_sockaddr(const char *, int, sockaddr_union_t, socklen_t *,
-			int *);
+static int get_sockaddr(const char *, int, sockaddr_union_t,
+			socklen_t *, int *);
 static int add_timeout(time_t when, int socket);
 static void update_timeout(time_t when, int socket);
 static int remove_timeout(int socket);
@@ -640,9 +640,9 @@ get_sockaddr(const char *input, int port,
 	     sockaddr_union_t sup, 
 	     socklen_t *lenp, int *pfp)
 {
+	memset(sup, 0, sizeof *sup);
 	if (inet_pton(AF_INET6, input, &sup->sa6.sin6_addr) > 0) {
 		*lenp = sizeof sup->sa6;
-		memset(&sup->sa6, 0, sizeof sup->sa6);
 		sup->sa6.sin6_family = AF_INET6;
 #ifdef BSD4_4
 		sup->sa6.sin6_len = *lenp;
@@ -651,7 +651,6 @@ get_sockaddr(const char *input, int port,
 		*pfp = PF_INET6;
 	} else if (inet_pton(AF_INET, input, &sup->sa4.sin_addr) > 0) {
 		*lenp = sizeof sup->sa4;
-		memset(&sup->sa4, 0, sizeof sup->sa4);
 		sup->sa4.sin_family = AF_INET;
 #ifdef BSD4_4
 		sup->sa4.sin_len = *lenp;
