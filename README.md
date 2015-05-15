@@ -58,7 +58,7 @@ Client Installation
 The proxy_dns_gw service must be told what IP address to listen on for DNS
 (noting, it will open both a UDP and a TCP listener on that address), so if
 you want it to listen on both ::1 and 127.0.0.1, you will have to start two
-proxy_dns_gw processes, telling one "-l ::1" and the other "-l 127.0.0.1".
+listeners, by giving proxy_dns_gw two arguments "-l ::1" and "-l 127.0.0.1".
 
 It must also be told where to connect for its DNS proxy service. If your
 FastCGI service (see previous section) is running on a web server
