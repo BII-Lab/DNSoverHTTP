@@ -123,4 +123,4 @@ Authors
 
 This software was conceived and drafted by Paul Vixie during WIDE-2015-03,
 and is hereby placed into the public domain, and also placed into the care
-of BIIGroup, a Beijing-based non-profit Internet technology company.
+of BII, a Beijing-based non-profit Internet technology company.
