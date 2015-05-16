@@ -96,8 +96,8 @@ start_fcgi_worker(void *uap) {
 					  request.envp);
 		reqlen = atoi((len_str != NULL) ? len_str : "0");
 
-		fprintf(stderr, "request (%d bytes, transport %s)\n",
-			reqlen, transport);
+		/*fprintf(stderr, "request (%d bytes, transport %s)\n",
+			reqlen, transport);*/
 
 		if (request.role != FCGI_RESPONDER) {
 			asprintf(&errmsg, "bad role = %d\r\n",
