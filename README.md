@@ -124,3 +124,6 @@ Authors
 This software was conceived and drafted by Paul Vixie during WIDE-2015-03,
 and is hereby placed into the public domain, and also placed into the care
 of BII, a Beijing-based non-profit Internet technology company.
+
+Note that there is a follow-up work using Golang to implement DNS over HTTP, 
+Please visit https://github.com/BII-Lab/DNSoverHTTPinGO for more information.
