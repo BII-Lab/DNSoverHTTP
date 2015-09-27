@@ -41,7 +41,7 @@ fragmented UDP (to make EDNS0 usable.)
 
 1. place the proxy_dns_fcgi executable somewhere that nginx can reach it.
 2. start this executable and look for a /tmp/proxy_dns_fcgi.sock file.
-3. A. edit nginx.conf to contain something equivilent to the following:
+3. edit nginx.conf to contain something equivilent to the following:
 
         location /proxy_dns {
                 root /;
@@ -49,20 +49,19 @@ fragmented UDP (to make EDNS0 usable.)
                 include fastcgi_params;
         }
 
-   B. or, edit httpd.conf to contain something equivilent to the following:
+   or, edit httpd.conf to contain something equivilent to the following:
 
-	Listen 24.104.150.237:80
-	Listen [2001:559:8000::B]:80
+        Listen 24.104.150.237:80
+        Listen [2001:559:8000::B]:80
 
-	LoadModule proxy_module libexec/apache24/mod_proxy.so
-	LoadModule proxy_fcgi_module libexec/apache24/mod_proxy_fcgi.so
+        LoadModule proxy_module libexec/apache24/mod_proxy.so
+        LoadModule proxy_fcgi_module libexec/apache24/mod_proxy_fcgi.so
 
-	<VirtualHost 24.104.150.237:80 [2001:559:8000::B]:80>
-	  ServerName proxy-dns.tisf.net
-	  ProxyPass /proxy_dns \
-	            unix:/tmp/proxy_dns_fcgi.sock|fcgi://localhost/ \
-	            enablereuse=on
-	</VirtualHost>
+        <VirtualHost 24.104.150.237:80 [2001:559:8000::B]:80>  ServerName proxy-dns.tisf.net
+          ProxyPass /proxy_dns \
+                    unix:/tmp/proxy_dns_fcgi.sock|fcgi://localhost/ \
+                    enablereuse=on
+        </VirtualHost>
 
 4. reload the configuration of, or restart, your nginx server.
 5. test the integration by visiting the /proxy_dns page with a browser.
