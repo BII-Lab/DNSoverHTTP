@@ -58,7 +58,7 @@ fragmented UDP (to make EDNS0 usable.)
         LoadModule proxy_fcgi_module libexec/apache24/mod_proxy_fcgi.so
 
         <VirtualHost 24.104.150.237:80 [2001:559:8000::B]:80>
-	  ServerName proxy-dns.tisf.net
+          ServerName proxy-dns.tisf.net
           ProxyPass /proxy_dns \\
                     unix:/tmp/proxy_dns_fcgi.sock|fcgi://localhost/ \\
                     enablereuse=on
